@@ -34,7 +34,7 @@
 | **VSCode** | 企业级架构、多进程、丰富插件生态 | 学习可扩展性设计 |
 | **Obsidian** | 轻量快速、单进程、社区驱动 | 学习简洁架构 |
 
-共完成 **35 个技术领域**的深度研究（详见 `research/vscode-vs-obsidian/`），为以下架构决策提供依据。
+共完成 **35 个技术领域**的深度研究（详见 [vscode-vs-obsidian](https://github.com/iamdin/electron-desktop-architecture-research/tree/main/vscode-vs-obsidian)），为以下架构决策提供依据。
 
 ---
 
@@ -63,7 +63,7 @@
 ### 一、基础架构
 
 #### 1. 进程架构
-> 📖 [01-process-architecture.md](./01-process-architecture.md)
+> 📖 [01-process-architecture.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/01-process-architecture.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -77,7 +77,7 @@
 ---
 
 #### 2. 模块系统
-> 📖 [02-module-system.md](./02-module-system.md)
+> 📖 [02-module-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/02-module-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -91,7 +91,7 @@
 ---
 
 #### 3. IPC 通信
-> 📖 [03-ipc-communication.md](./03-ipc-communication.md)
+> 📖 [03-ipc-communication.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/03-ipc-communication.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -107,7 +107,7 @@
 ### 二、插件系统
 
 #### 4. 插件 API 设计
-> 📖 [04-plugin-api-design.md](./04-plugin-api-design.md)
+> 📖 [04-plugin-api-design.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/04-plugin-api-design.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -121,7 +121,7 @@
 ---
 
 #### 5. 扩展点机制
-> 📖 [05-extension-points.md](./05-extension-points.md)
+> 📖 [05-extension-points.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/05-extension-points.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -135,7 +135,7 @@
 ---
 
 #### 6. 插件生命周期
-> 📖 [06-plugin-lifecycle.md](./06-plugin-lifecycle.md)
+> 📖 [06-plugin-lifecycle.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/06-plugin-lifecycle.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -149,7 +149,7 @@
 ---
 
 #### 7. 插件间通信
-> 📖 [07-plugin-communication.md](./07-plugin-communication.md)
+> 📖 [07-plugin-communication.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/07-plugin-communication.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -165,7 +165,7 @@
 ### 三、UI 系统
 
 #### 8. UI 布局
-> 📖 [08-ui-layout.md](./08-ui-layout.md)
+> 📖 [08-ui-layout.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/08-ui-layout.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -179,7 +179,7 @@
 ---
 
 #### 9. 视图系统
-> 📖 [09-view-system.md](./09-view-system.md)
+> 📖 [09-view-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/09-view-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -193,7 +193,7 @@
 ---
 
 #### 10. 主题系统
-> 📖 [10-theme-system.md](./10-theme-system.md)
+> 📖 [10-theme-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/10-theme-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -209,7 +209,7 @@
 ### 四、交互系统
 
 #### 11. 命令系统
-> 📖 [11-command-system.md](./11-command-system.md)
+> 📖 [11-command-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/11-command-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -223,7 +223,7 @@
 ---
 
 #### 12. 快捷键系统
-> 📖 [12-keybinding-system.md](./12-keybinding-system.md)
+> 📖 [12-keybinding-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/12-keybinding-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -237,7 +237,7 @@
 ---
 
 #### 13. 右键菜单
-> 📖 [13-context-menu.md](./13-context-menu.md)
+> 📖 [13-context-menu.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/13-context-menu.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -253,7 +253,7 @@
 ### 五、编辑器核心
 
 #### 14. 编辑器引擎
-> 📖 [14-editor-engine.md](./14-editor-engine.md)
+> 📖 [14-editor-engine.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/14-editor-engine.md)
 
 | Monaco (VSCode) | CodeMirror (Obsidian) |
 |-----------------|----------------------|
@@ -268,7 +268,7 @@
 ---
 
 #### 15. 编辑器扩展
-> 📖 [15-editor-extension.md](./15-editor-extension.md)
+> 📖 [15-editor-extension.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/15-editor-extension.md)
 
 | VSCode/Monaco | CodeMirror |
 |---------------|------------|
@@ -282,7 +282,7 @@
 ---
 
 #### 16. 装饰系统
-> 📖 [16-decoration-system.md](./16-decoration-system.md)
+> 📖 [16-decoration-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/16-decoration-system.md)
 
 | VSCode/Monaco | CodeMirror |
 |---------------|------------|
@@ -298,7 +298,7 @@
 ### 六、数据与状态
 
 #### 17. 状态管理
-> 📖 [17-state-management.md](./17-state-management.md)
+> 📖 [17-state-management.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/17-state-management.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -312,7 +312,7 @@
 ---
 
 #### 18. 设置系统
-> 📖 [18-settings-system.md](./18-settings-system.md)
+> 📖 [18-settings-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/18-settings-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -326,7 +326,7 @@
 ---
 
 #### 19. 文件系统
-> 📖 [19-file-system.md](./19-file-system.md)
+> 📖 [19-file-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/19-file-system.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -340,7 +340,7 @@
 ---
 
 #### 20. 缓存与持久化
-> 📖 [20-cache-persistence.md](./20-cache-persistence.md)
+> 📖 [20-cache-persistence.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/20-cache-persistence.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -356,7 +356,7 @@
 ### 七、开发者功能
 
 #### 21. 语言服务
-> 📖 [21-language-service.md](./21-language-service.md)
+> 📖 [21-language-service.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/21-language-service.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -370,7 +370,7 @@
 ---
 
 #### 22. 调试功能
-> 📖 [22-debug-capability.md](./22-debug-capability.md)
+> 📖 [22-debug-capability.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/22-debug-capability.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -384,7 +384,7 @@
 ---
 
 #### 23. 终端集成
-> 📖 [23-terminal-integration.md](./23-terminal-integration.md)
+> 📖 [23-terminal-integration.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/23-terminal-integration.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -398,7 +398,7 @@
 ---
 
 #### 24. 搜索功能
-> 📖 [24-search-capability.md](./24-search-capability.md)
+> 📖 [24-search-capability.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/24-search-capability.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -412,7 +412,7 @@
 ---
 
 #### 25. 版本控制
-> 📖 [25-version-control.md](./25-version-control.md)
+> 📖 [25-version-control.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/25-version-control.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -428,7 +428,7 @@
 ### 八、生态系统
 
 #### 26. 插件市场
-> 📖 [26-plugin-marketplace.md](./26-plugin-marketplace.md)
+> 📖 [26-plugin-marketplace.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/26-plugin-marketplace.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -442,7 +442,7 @@
 ---
 
 #### 27. 开发者体验
-> 📖 [27-developer-experience.md](./27-developer-experience.md)
+> 📖 [27-developer-experience.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/27-developer-experience.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -458,7 +458,7 @@
 ### 九、安全与性能
 
 #### 28. 安全模型
-> 📖 [28-security-model.md](./28-security-model.md)
+> 📖 [28-security-model.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/28-security-model.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -472,7 +472,7 @@
 ---
 
 #### 29. 启动性能
-> 📖 [29-startup-performance.md](./29-startup-performance.md)
+> 📖 [29-startup-performance.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/29-startup-performance.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -486,7 +486,7 @@
 ---
 
 #### 30. 运行时性能
-> 📖 [30-runtime-performance.md](./30-runtime-performance.md)
+> 📖 [30-runtime-performance.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/30-runtime-performance.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -502,7 +502,7 @@
 ### 十、平台与体验
 
 #### 31. 多平台支持
-> 📖 [31-multi-platform.md](./31-multi-platform.md)
+> 📖 [31-multi-platform.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/31-multi-platform.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -516,7 +516,7 @@
 ---
 
 #### 32. 国际化
-> 📖 [32-internationalization.md](./32-internationalization.md)
+> 📖 [32-internationalization.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/32-internationalization.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -530,7 +530,7 @@
 ---
 
 #### 33. 无障碍
-> 📖 [33-accessibility.md](./33-accessibility.md)
+> 📖 [33-accessibility.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/33-accessibility.md)
 
 | VSCode | Obsidian |
 |--------|----------|
@@ -546,7 +546,7 @@
 ### 十一、特色参考
 
 #### 34. VSCode 特色
-> 📖 [34-vscode-specific.md](./34-vscode-specific.md)
+> 📖 [34-vscode-specific.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/34-vscode-specific.md)
 
 值得借鉴：
 - Remote Development（SSH/Container）→ 后续考虑
@@ -558,7 +558,7 @@
 ---
 
 #### 35. Obsidian 特色
-> 📖 [35-obsidian-specific.md](./35-obsidian-specific.md)
+> 📖 [35-obsidian-specific.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/35-obsidian-specific.md)
 
 值得借鉴：
 - 本地优先 → 采纳
@@ -592,7 +592,7 @@
 
 ### 研究文档
 
-所有详细研究位于 `research/vscode-vs-obsidian/` 目录：
+所有详细研究位于 [vscode-vs-obsidian](https://github.com/iamdin/electron-desktop-architecture-research/tree/main/vscode-vs-obsidian) 目录：
 
 | 类别 | 文档 |
 |------|------|
