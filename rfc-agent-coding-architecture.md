@@ -1,8 +1,6 @@
-# RFC-001: Agent Coding App 架构设计
+# RFC: Agent Coding App 架构设计
 
-- **RFC 编号**: 001
 - **标题**: Agent Coding App 架构设计
-- **作者**: 架构组
 - **状态**: 🟡 Draft
 - **创建日期**: 2026-01-19
 - **最后更新**: 2026-01-19
