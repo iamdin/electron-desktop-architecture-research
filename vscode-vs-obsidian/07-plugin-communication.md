@@ -385,7 +385,7 @@ interface LanguageService {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 推荐的插件间通信设计
 

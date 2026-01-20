@@ -436,7 +436,7 @@ export default class MyPlugin extends Plugin {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 推荐的生命周期设计
 

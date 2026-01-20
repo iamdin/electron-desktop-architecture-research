@@ -262,11 +262,11 @@ view.dispatch({
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 编辑器选择
 
-对于 AI Chat + Editor 应用，推荐 **CodeMirror 6**：
+对于 Coding Agent Desktop 应用，推荐 **CodeMirror 6**：
 
 1. **轻量**：体积小，加载快
 2. **模块化**：按需加载功能

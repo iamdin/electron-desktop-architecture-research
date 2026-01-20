@@ -30,52 +30,186 @@ IPC（Inter-Process Communication）通信是多进程架构的核心问题：
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
+### Electron IPC 封装层
+
+VSCode 在 Electron IPC 之上封装了 `IMessagePassingProtocol` 接口：
+
+```typescript
+// src/vs/base/parts/ipc/common/ipc.ts（源码验证）
+
+// 消息传递协议接口
+export interface IMessagePassingProtocol {
+  send(buffer: VSBuffer): void;
+  readonly onMessage: Event<VSBuffer>;
+  drain?(): Promise<void>;  // 等待写缓冲区清空
+}
+```
+
+```typescript
+// src/vs/base/parts/ipc/common/ipc.electron.ts（源码验证）
+
+export interface Sender {
+  send(channel: string, msg: unknown): void;
+}
+
+/**
+ * Electron Protocol 利用 Electron 风格的 IPC 通信（ipcRenderer, ipcMain）
+ * 实现 IMessagePassingProtocol。
+ */
+export class Protocol implements IMessagePassingProtocol {
+  constructor(private sender: Sender, readonly onMessage: Event<VSBuffer>) { }
+
+  send(message: VSBuffer): void {
+    try {
+      this.sender.send('vscode:message', message.buffer);
+    } catch (e) {
+      // systems are going down
+    }
+  }
+
+  disconnect(): void {
+    this.sender.send('vscode:disconnect', null);
+  }
+}
+```
+
+```typescript
+// src/vs/base/parts/ipc/electron-main/ipc.electron.ts（源码验证）
+
+/**
+ * 基于 Electron ipcMain API 的 IPCServer 实现
+ */
+export class Server extends IPCServer {
+  private static readonly Clients = new Map<number, IDisposable>();
+
+  private static getOnDidClientConnect(): Event<ClientConnectionEvent> {
+    // 监听渲染进程的 hello 消息
+    const onHello = Event.fromNodeEventEmitter<WebContents>(
+      validatedIpcMain,
+      'vscode:hello',
+      ({ sender }) => sender
+    );
+
+    return Event.map(onHello, webContents => {
+      const id = webContents.id;
+
+      // 创建作用域内的消息事件
+      const onMessage = createScopedOnMessageEvent(id, 'vscode:message') as Event<VSBuffer>;
+      const onDidClientDisconnect = Event.any(
+        Event.signal(createScopedOnMessageEvent(id, 'vscode:disconnect')),
+        onDidClientReconnect.event
+      );
+
+      // 使用 ElectronProtocol 封装
+      const protocol = new ElectronProtocol(webContents, onMessage);
+
+      return { protocol, onDidClientDisconnect };
+    });
+  }
+
+  constructor() {
+    super(Server.getOnDidClientConnect());
+  }
+}
+```
+
 ### 自定义 RPC 协议
 
 VSCode 实现了自己的 RPC 协议，而非直接使用 Electron IPC：
 
 ```typescript
-// src/vs/base/parts/ipc/common/ipc.ts
+// src/vs/base/parts/ipc/common/ipc.ts（源码验证）
 
-// 消息类型
-const enum MessageType {
-  RequestType = 100,
-  ResponseType = 101,
-  EventType = 102,
-  CancelType = 103,
+// 请求类型
+const enum RequestType {
+  Promise = 100,        // 普通请求
+  PromiseCancel = 101,  // 取消请求
+  EventListen = 102,    // 事件订阅
+  EventDispose = 103    // 取消订阅
 }
 
-// 消息结构
-interface RequestMessage {
-  type: MessageType.RequestType;
+// 响应类型
+const enum ResponseType {
+  Initialize = 200,      // 初始化
+  PromiseSuccess = 201,  // 成功响应
+  PromiseError = 202,    // 错误响应（Error 对象）
+  PromiseErrorObj = 203, // 错误响应（普通对象）
+  EventFire = 204        // 事件触发
+}
+
+// 请求消息结构（内部使用二进制序列化，这里展示逻辑结构）
+type IRawPromiseRequest = {
+  type: RequestType.Promise;
   id: number;           // 请求 ID，用于匹配响应
   channelName: string;  // 通道名
   name: string;         // 方法名
   arg: any;             // 参数
-}
+};
 
-interface ResponseMessage {
-  type: MessageType.ResponseType;
+type IRawEventListenRequest = {
+  type: RequestType.EventListen;
+  id: number;
+  channelName: string;
+  name: string;
+  arg: any;
+};
+
+// 响应消息结构
+type IRawPromiseSuccessResponse = {
+  type: ResponseType.PromiseSuccess;
   id: number;           // 对应的请求 ID
   data: any;            // 响应数据
-  error?: any;          // 错误信息
-}
+};
+
+type IRawPromiseErrorResponse = {
+  type: ResponseType.PromiseError;
+  id: number;
+  data: {
+    message: string;
+    name: string;
+    stack: string[] | undefined;
+  };
+};
 ```
 
 ### Channel 抽象
 
 ```typescript
-// 定义 Channel 接口
-// src/vs/base/parts/ipc/common/ipc.ts
+// src/vs/base/parts/ipc/common/ipc.ts（源码验证）
+
+/**
+ * IChannel 是对一组命令的抽象。
+ * 可以在 channel 上调用多个命令，每个命令最多接受一个参数。
+ * call 总是返回一个 Promise。
+ */
 export interface IChannel {
-  call<T>(command: string, arg?: any): Promise<T>;
-  listen<T>(event: string): Event<T>;
+  call<T>(command: string, arg?: any, cancellationToken?: CancellationToken): Promise<T>;
+  listen<T>(event: string, arg?: any): Event<T>;
 }
 
-// 服务端 Channel 实现
+/**
+ * IServerChannel 是 IChannel 的服务端对应。
+ * 用于处理远程 Promise 或事件。
+ */
 export interface IServerChannel<TContext = string> {
-  call<T>(ctx: TContext, command: string, arg?: any): Promise<T>;
-  listen<T>(ctx: TContext, event: string): Event<T>;
+  call<T>(ctx: TContext, command: string, arg?: any, cancellationToken?: CancellationToken): Promise<T>;
+  listen<T>(ctx: TContext, event: string, arg?: any): Event<T>;
+}
+
+/**
+ * IChannelServer 托管一组 channels。
+ * 可以通过 channel 名称注册 channels。
+ */
+export interface IChannelServer<TContext = string> {
+  registerChannel(channelName: string, channel: IServerChannel<TContext>): void;
+}
+
+/**
+ * IChannelClient 可以访问一组 channels。
+ * 可以通过 channel 名称获取 channels。
+ */
+export interface IChannelClient {
+  getChannel<T extends IChannel>(channelName: string): T;
 }
 ```
 
@@ -132,68 +266,174 @@ export class FileServiceClient implements IFileService {
 
 ### 序列化处理
 
-```typescript
-// src/vs/base/common/marshalling.ts
+VSCode 使用**两层序列化**机制：
 
-// 自定义序列化，处理特殊类型
-export function stringify(obj: any): string {
-  return JSON.stringify(obj, (key, value) => {
-    if (value instanceof URI) {
-      return { $mid: MarshalledId.Uri, ...value.toJSON() };
-    }
-    if (value instanceof RegExp) {
-      return { $mid: MarshalledId.Regexp, source: value.source, flags: value.flags };
-    }
-    if (ArrayBuffer.isView(value)) {
-      return { $mid: MarshalledId.Buffer, data: Array.from(value as Uint8Array) };
-    }
-    return value;
-  });
+```typescript
+// src/vs/base/parts/ipc/common/ipc.ts（源码验证）
+
+// 1. 底层二进制序列化 - 数据类型枚举
+enum DataType {
+  Undefined = 0,
+  String = 1,
+  Buffer = 2,
+  VSBuffer = 3,
+  Array = 4,
+  Object = 5,  // 只有复杂对象使用 JSON
+  Int = 6      // 整数使用 VQL 编码
 }
 
-export function parse(text: string): any {
-  return JSON.parse(text, (key, value) => {
-    if (value && typeof value === 'object') {
-      switch (value.$mid) {
-        case MarshalledId.Uri:
-          return URI.revive(value);
-        case MarshalledId.Regexp:
-          return new RegExp(value.source, value.flags);
-        case MarshalledId.Buffer:
-          return new Uint8Array(value.data);
-      }
+// 使用 VQL (Variable-Length Quantity) 编码整数，减少传输体积
+// 参考: https://en.wikipedia.org/wiki/Variable-length_quantity
+```
+
+```typescript
+// src/vs/base/common/marshalling.ts（源码验证）
+
+// 2. 对象恢复层 - 恢复特殊类型
+export function revive<T = any>(obj: any, depth = 0): Revived<T> {
+  if (typeof obj === 'object') {
+    switch ((<MarshalledObject>obj).$mid) {
+      case MarshalledId.Uri: return URI.revive(obj);
+      case MarshalledId.Regexp: return new RegExp(obj.source, obj.flags);
+      case MarshalledId.Date: return new Date(obj.source);
     }
-    return value;
-  });
+    // 递归处理数组和对象...
+  }
+  return obj;
 }
 ```
 
 ### Extension Host 通信
 
+Extension Host 使用独立的 `RPCProtocol` 通过 **MessagePort** 与渲染进程通信：
+
+#### 通信建立过程
+
 ```typescript
-// src/vs/workbench/services/extensions/common/extensionHostProtocol.ts
+// src/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.ts（源码验证）
 
-// 定义协议
-export interface IExtensionHostProtocol {
-  // 主线程 -> Extension Host
-  $executeContributedCommand(id: string, ...args: any[]): Promise<any>;
-  $activateExtension(extensionId: string): Promise<void>;
+private _establishProtocol(extensionHostProcess: ExtensionHostProcess, opts: IExtensionHostProcessOptions): Promise<IMessagePassingProtocol> {
+  // 使用 MessagePort 进行通信
+  writeExtHostConnection(new MessagePortExtHostConnection(), opts.env);
 
-  // Extension Host -> 主线程
-  $registerCommand(id: string): void;
-  $showInformationMessage(message: string): Promise<void>;
+  const portPromise = acquirePort(undefined, opts.responseChannel, opts.responseNonce);
+
+  return new Promise<IMessagePassingProtocol>((resolve, reject) => {
+    portPromise.then((port) => {
+      const onMessage = new BufferedEmitter<VSBuffer>();
+
+      // 监听来自 Extension Host 的消息
+      port.onmessage = ((e) => {
+        if (e.data) {
+          onMessage.fire(VSBuffer.wrap(e.data));
+        }
+      });
+      port.start();
+
+      // 返回 IMessagePassingProtocol 实现
+      resolve({
+        onMessage: onMessage.event,
+        send: message => port.postMessage(message.buffer),  // 通过 MessagePort 发送
+      });
+    });
+  });
 }
+```
 
+#### RPCProtocol 消息类型
+
+```typescript
+// src/vs/workbench/services/extensions/common/rpcProtocol.ts（源码验证）
+
+// Extension Host 专用的消息类型
+const enum MessageType {
+  RequestJSONArgs = 1,                   // JSON 参数请求
+  RequestJSONArgsWithCancellation = 2,   // 带取消的 JSON 参数请求
+  RequestMixedArgs = 3,                  // 混合参数请求（含 Buffer）
+  RequestMixedArgsWithCancellation = 4,  // 带取消的混合参数请求
+  Acknowledged = 5,                      // 确认收到
+  Cancel = 6,                            // 取消请求
+  ReplyOKEmpty = 7,                      // 空成功响应
+  ReplyOKVSBuffer = 8,                   // Buffer 成功响应
+  ReplyOKJSON = 9,                       // JSON 成功响应
+  ReplyOKJSONWithBuffers = 10,           // 带 Buffer 的 JSON 响应
+  ReplyErrError = 11,                    // 错误响应
+  ReplyErrEmpty = 12,                    // 空错误响应
+}
+```
+
+#### RPCProtocol 核心实现
+
+```typescript
+// src/vs/workbench/services/extensions/common/rpcProtocol.ts（源码验证）
+
+export class RPCProtocol extends Disposable implements IRPCProtocol {
+  private static readonly UNRESPONSIVE_TIME = 3 * 1000; // 3s 无响应检测
+
+  private readonly _protocol: IMessagePassingProtocol;
+  private readonly _locals: any[];   // 本地注册的服务
+  private readonly _proxies: any[];  // 远程代理
+  private _lastMessageId: number;
+
+  constructor(protocol: IMessagePassingProtocol, ...) {
+    this._protocol = protocol;
+    this._register(this._protocol.onMessage((msg) => this._receiveOneMessage(msg)));
+  }
+
+  // 获取远程代理
+  public getProxy<T>(identifier: ProxyIdentifier<T>): Proxied<T> {
+    const { nid: rpcId, sid } = identifier;
+    if (!this._proxies[rpcId]) {
+      this._proxies[rpcId] = this._createProxy(rpcId, sid);
+    }
+    return this._proxies[rpcId];
+  }
+
+  // 动态创建代理（使用 Proxy）
+  private _createProxy<T>(rpcId: number, debugName: string): T {
+    const handler = {
+      get: (target: any, name: PropertyKey) => {
+        if (typeof name === 'string' && !target[name] && name.charCodeAt(0) === CharCode.DollarSign) {
+          // $开头的方法自动代理为远程调用
+          target[name] = (...myArgs: any[]) => {
+            return this._remoteCall(rpcId, name, myArgs);
+          };
+        }
+        return target[name];
+      }
+    };
+    return new Proxy(Object.create(null), handler);
+  }
+
+  // 远程调用
+  private _remoteCall(rpcId: number, methodName: string, args: any[]): Promise<any> {
+    const req = ++this._lastMessageId;
+    const result = new LazyPromise();
+
+    this._pendingRPCReplies[String(req)] = new PendingRPCReply(result, disposable);
+    this._onWillSendRequest(req);
+
+    const msg = MessageIO.serializeRequest(req, rpcId, methodName, serializedArgs, !!cancellationToken);
+    this._protocol.send(msg);
+
+    return result;
+  }
+}
+```
+
+#### 代理模式使用示例
+
+```typescript
 // 代理实现（渲染进程侧）
 export class MainThreadCommands implements MainThreadCommandsShape {
   private readonly _proxy: ExtHostCommandsShape;
 
   constructor(extHostContext: IExtHostContext) {
+    // 通过 RPCProtocol 获取 Extension Host 侧的代理
     this._proxy = extHostContext.getProxy(ExtHostContext.ExtHostCommands);
   }
 
   async $executeCommand(id: string, ...args: any[]): Promise<any> {
-    // 执行命令
     return this._commandService.executeCommand(id, ...args);
   }
 }
@@ -203,12 +443,13 @@ export class ExtHostCommands implements ExtHostCommandsShape {
   private readonly _proxy: MainThreadCommandsShape;
 
   constructor(mainContext: IMainContext) {
+    // 通过 RPCProtocol 获取渲染进程侧的代理
     this._proxy = mainContext.getProxy(MainContext.MainThreadCommands);
   }
 
   registerCommand(id: string, callback: Function): Disposable {
     this._commands.set(id, callback);
-    this._proxy.$registerCommand(id);
+    this._proxy.$registerCommand(id);  // 远程调用，自动序列化
     return { dispose: () => this._commands.delete(id) };
   }
 }
@@ -218,21 +459,50 @@ export class ExtHostCommands implements ExtHostCommandsShape {
 
 ## Obsidian 的 IPC 通信
 
-### 简化的单进程模型
+### 安全模型（源码验证）
 
-由于 Obsidian 插件运行在渲染进程，大部分情况不需要 IPC：
+Obsidian 采用**非隔离的渲染进程**模型：
 
 ```typescript
-// 直接调用，无需 IPC
+// Obsidian 的 Electron 配置（推测，基于插件行为验证）
+new BrowserWindow({
+  webPreferences: {
+    nodeIntegration: true,      // 允许 require
+    contextIsolation: false,    // 不隔离上下文，window.require 可用
+    enableRemoteModule: true,   // 启用 @electron/remote
+  }
+});
+```
+
+**证据**：[obsidian-electron-window-tweaker](https://github.com/mgmeyers/obsidian-electron-window-tweaker) 插件源码：
+
+```typescript
+// main.ts（源码验证）
+// 使用 window.require 而非 require，说明 contextIsolation: false
+const setAlwaysOnTop = (on: boolean) => {
+  window.require("electron").remote.getCurrentWindow().setAlwaysOnTop(on);
+};
+
+const setOpacity = (opacity: number) => {
+  window.require("electron").remote.getCurrentWindow().setOpacity(opacity);
+};
+```
+
+### 简化的单进程模型
+
+由于 Obsidian 插件运行在渲染进程，大部分情况**不需要 IPC**：
+
+```typescript
+// 直接调用，无需 IPC（源码验证：obsidian-sample-plugin）
 export default class MyPlugin extends Plugin {
   async onload() {
-    // 直接访问 Vault（文件系统抽象）
+    // 直接访问 Vault（文件系统抽象，内部使用 Node.js fs）
     const content = await this.app.vault.read(file);
 
-    // 直接操作 DOM
+    // 直接操作 DOM（同进程）
     document.body.addClass('my-class');
 
-    // 直接访问编辑器
+    // 直接访问编辑器（同进程）
     const editor = this.app.workspace.activeEditor?.editor;
     if (editor) {
       editor.replaceSelection('Hello');
@@ -241,43 +511,89 @@ export default class MyPlugin extends Plugin {
 }
 ```
 
-### 需要 IPC 的场景
+### 访问主进程能力（通过 @electron/remote）
 
-Obsidian 仍需要与主进程通信的场景：
+Obsidian 使用 **`@electron/remote`** 模块（已废弃但仍在使用）：
 
 ```typescript
-// 1. 原生对话框
-const { remote } = require('electron');
-const result = await remote.dialog.showOpenDialog({
+// 源码验证：obsidian-electron-window-tweaker/main.ts
+
+// 1. 窗口操作（同步远程调用，非 IPC）
+window.require("electron").remote.getCurrentWindow().setAlwaysOnTop(true);
+window.require("electron").remote.getCurrentWindow().setOpacity(0.8);
+
+// 2. macOS 特有功能
+window.require("electron").remote.getCurrentWindow().setVibrancy("window");
+window.require("electron").remote.getCurrentWindow().setTrafficLightPosition({ x: 7, y: 6 });
+
+// 3. 原生对话框
+const { dialog } = window.require("electron").remote;
+const result = await dialog.showOpenDialog({
   properties: ['openFile']
 });
 
-// 2. 系统菜单
-const { Menu, MenuItem } = remote;
+// 4. 系统菜单
+const { Menu, MenuItem } = window.require("electron").remote;
 const menu = new Menu();
 menu.append(new MenuItem({ label: 'Custom Item' }));
-
-// 3. 原生通知
-new Notification('Title', { body: 'Body' });
 ```
 
-### Electron IPC 直接使用
+### 插件声明要求
 
-```typescript
-// Obsidian 插件中使用 Electron IPC
-const { ipcRenderer } = require('electron');
+使用 Electron API 的插件必须声明 `isDesktopOnly`：
 
-// 发送消息到主进程
-ipcRenderer.send('my-channel', { data: 'hello' });
-
-// 接收主进程响应
-ipcRenderer.on('my-channel-reply', (event, response) => {
-  console.log('Response:', response);
-});
-
-// 同步调用（阻塞）
-const result = ipcRenderer.sendSync('sync-channel', 'data');
+```json
+// manifest.json（源码验证：obsidian-electron-window-tweaker）
+{
+  "id": "obsidian-electron-window-tweaker",
+  "name": "Electron Window Tweaker",
+  "isDesktopOnly": true  // 必须声明，否则在移动端崩溃
+}
 ```
+
+### @electron/remote 的工作原理
+
+`@electron/remote` 不是真正的 IPC，而是**同步远程过程调用**：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Renderer Process                             │
+│                                                                  │
+│  window.require("electron").remote.getCurrentWindow()            │
+│           │                                                      │
+│           ▼                                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              @electron/remote 模块                       │    │
+│  │  - 内部使用 ipcRenderer.sendSync() 同步调用              │    │
+│  │  - 返回主进程对象的代理（Proxy）                          │    │
+│  │  - 所有方法调用都被拦截并转发到主进程                      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│           │                                                      │
+└───────────┼──────────────────────────────────────────────────────┘
+            │ ipcRenderer.sendSync()
+            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Main Process                                │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              @electron/remote 主进程模块                 │    │
+│  │  - 接收渲染进程的同步请求                                │    │
+│  │  - 执行实际的 BrowserWindow 方法                         │    │
+│  │  - 同步返回结果                                          │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 安全性对比
+
+| 方面 | VSCode | Obsidian |
+|------|--------|----------|
+| **contextIsolation** | ✅ 启用 | ❌ 禁用 |
+| **nodeIntegration** | ❌ 禁用（通过 preload） | ✅ 启用 |
+| **@electron/remote** | ❌ 不使用 | ✅ 使用 |
+| **插件隔离** | ✅ 独立进程 | ❌ 同进程 |
+| **恶意插件风险** | 低（沙箱隔离） | 高（完全访问） |
 
 ---
 
@@ -287,13 +603,15 @@ const result = ipcRenderer.sendSync('sync-channel', 'data');
 
 | 方面 | VSCode | Obsidian |
 |------|--------|----------|
-| **通信协议** | 自定义 RPC | Electron IPC |
-| **序列化** | 自定义（支持 URI、Buffer 等） | JSON |
-| **类型安全** | 编译时类型检查 | 运行时，弱类型 |
+| **通信协议** | 自定义 RPC（MessagePort + 二进制） | @electron/remote（同步 IPC） |
+| **序列化** | 二进制 + VQL 编码 + JSON 回退 | 无需序列化（同步代理） |
+| **类型安全** | 编译时类型检查（ProxyIdentifier） | 运行时，弱类型 |
 | **通信频率** | 高（所有插件 API 调用） | 低（仅系统调用） |
-| **双向通信** | 支持（call + listen） | 支持 |
-| **流式传输** | 支持 | 不直接支持 |
-| **错误处理** | 结构化错误传递 | 基本错误传递 |
+| **双向通信** | 支持（call + listen） | 支持（同步阻塞） |
+| **流式传输** | 支持（MessagePort） | 不支持 |
+| **错误处理** | 结构化错误传递（保留 stack） | 直接抛出 |
+| **取消机制** | 内置 CancellationToken | 无 |
+| **无响应检测** | 3s 自动检测 | 无（同步阻塞 UI） |
 
 ### 性能对比
 
@@ -394,7 +712,7 @@ worker.postMessage({ buffer }, [buffer]); // buffer 被转移，不是拷贝
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 推荐架构
 
@@ -402,24 +720,34 @@ worker.postMessage({ buffer }, [buffer]); // buffer 被转移，不是拷贝
 ┌─────────────────────────────────────────────────────────────┐
 │                      Main Process                            │
 │                                                              │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │                    IPC Server                        │    │
-│  │  - FileChannel                                       │    │
-│  │  - DialogChannel                                     │    │
-│  │  - SystemChannel                                     │    │
-│  └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Renderer Process                          │
-│                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │   UI Layer   │  │  IPC Client  │  │  AI Worker   │       │
-│  │              │◄─┤              │  │              │       │
-│  │  - React     │  │  - Services  │  │  - Streaming │       │
-│  │  - Editor    │  │  - Proxy     │  │  - LLM calls │       │
-│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│  ┌──────────────────────┐    ┌──────────────────────────┐   │
+│  │      IPC Server      │    │     AI Server Manager    │   │
+│  │  - FileChannel       │    │  - spawn AI Server       │   │
+│  │  - DialogChannel     │    │  - 管理生命周期          │   │
+│  │  - SystemChannel     │    │  - 健康检查/重启         │   │
+│  └──────────────────────┘    └────────────┬─────────────┘   │
+│                                           │ spawn            │
+└───────────────────────────────────────────┼─────────────────┘
+                              │             │
+                              │             ▼
+                              │  ┌─────────────────────────┐
+                              │  │      AI Server          │
+                              │  │     （独立子进程）        │
+                              │  │  - HTTP/WebSocket 服务  │
+                              │  │  - LLM 调用             │
+                              │  │  - 流式响应             │
+                              │  └─────────────────────────┘
+                              │             ▲
+                              ▼             │ WebSocket（直连）
+┌───────────────────────────────────────────┼─────────────────┐
+│                    Renderer Process       │                  │
+│                                           │                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌────┴───────┐         │
+│  │   UI Layer   │  │  IPC Client  │  │  AI Client │         │
+│  │              │◄─┤              │  │            │         │
+│  │  - React     │  │  - File      │  │  - WS 连接 │         │
+│  │  - Editor    │  │  - Dialog    │  │  - 流式接收│         │
+│  └──────────────┘  └──────────────┘  └────────────┘         │
 │                                                              │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │                   Plugin Runtime                     │    │
@@ -428,6 +756,11 @@ worker.postMessage({ buffer }, [buffer]); // buffer 被转移，不是拷贝
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**通信方式**：
+- **Main ↔ Renderer**：Electron IPC（文件、对话框等系统操作）
+- **Renderer ↔ AI Server**：WebSocket 直连（AI 对话、流式响应）
+- **Main → AI Server**：仅负责 spawn 启动和生命周期管理
 
 ### IPC 层设计
 
@@ -476,48 +809,106 @@ export const ipc = {
 };
 ```
 
+### AI Server 架构
+
+AI 功能通过独立的 Server 进程实现，由 Main 进程 spawn 启动，Renderer 通过 WebSocket 直连：
+
+```typescript
+// main/ai-server/manager.ts
+import { spawn, ChildProcess } from 'child_process';
+
+class AIServerManager {
+  private server: ChildProcess | null = null;
+  private port: number = 3721;
+
+  async start(): Promise<number> {
+    // 启动 AI Server 子进程
+    this.server = spawn('node', ['ai-server/index.js'], {
+      stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      env: { ...process.env, AI_SERVER_PORT: String(this.port) }
+    });
+
+    // 监听进程退出，自动重启
+    this.server.on('exit', (code) => {
+      if (code !== 0) this.start();
+    });
+
+    // 等待 Server 就绪
+    await this.waitForReady();
+    return this.port;
+  }
+
+  // 提供端口给 Renderer 连接
+  getPort(): number {
+    return this.port;
+  }
+}
+
+// 在 Main 进程启动时
+const aiManager = new AIServerManager();
+await aiManager.start();
+
+// Renderer 请求 AI Server 端口
+ipcMain.handle('ai:get-port', () => aiManager.getPort());
+```
+
 ### AI 流式响应处理
 
 ```typescript
-// 使用 MessagePort 进行流式通信
-// main/ai/stream.ts
-ipcMain.on('ai:stream:start', (event, { prompt, portId }) => {
-  const port = event.ports[0];
-
-  const stream = llm.stream(prompt);
-  for await (const chunk of stream) {
-    port.postMessage({ type: 'chunk', data: chunk });
-  }
-  port.postMessage({ type: 'end' });
-  port.close();
-});
+// Renderer 直接通过 WebSocket 与 AI Server 通信
 
 // renderer/ai/client.ts
-async function* streamAI(prompt: string): AsyncIterable<string> {
-  const channel = new MessageChannel();
+class AIClient {
+  private ws: WebSocket | null = null;
+  private port: number | null = null;
 
-  ipcRenderer.postMessage('ai:stream:start', { prompt }, [channel.port2]);
-
-  const port = channel.port1;
-  port.start();
-
-  while (true) {
-    const message = await new Promise<any>((resolve) => {
-      port.onmessage = (e) => resolve(e.data);
-    });
-
-    if (message.type === 'end') break;
-    yield message.data;
+  async connect(): Promise<void> {
+    // 从 Main 获取 AI Server 端口
+    this.port = await ipcRenderer.invoke('ai:get-port');
+    this.ws = new WebSocket(`ws://localhost:${this.port}`);
+    await this.waitForOpen();
   }
 
-  port.close();
+  async *stream(prompt: string): AsyncIterable<string> {
+    if (!this.ws) await this.connect();
+
+    const requestId = crypto.randomUUID();
+
+    // 发送请求
+    this.ws!.send(JSON.stringify({ type: 'chat', requestId, prompt }));
+
+    // 接收流式响应
+    while (true) {
+      const message = await this.waitForMessage(requestId);
+      if (message.type === 'chunk') {
+        yield message.data;
+      } else if (message.type === 'end') {
+        break;
+      } else if (message.type === 'error') {
+        throw new Error(message.error);
+      }
+    }
+  }
 }
 
 // 使用
-for await (const chunk of streamAI('Hello')) {
+const ai = new AIClient();
+for await (const chunk of ai.stream('Hello')) {
   console.log(chunk);
 }
 ```
+
+### AI Server 进程优势
+
+| 方面 | Web Worker | AI Server（spawn + WebSocket） |
+|------|-----------|-------------------------------|
+| **隔离性** | 线程隔离 | 进程隔离（更彻底） |
+| **崩溃影响** | 可能影响 Renderer | 完全隔离，不影响 UI |
+| **通信方式** | postMessage | WebSocket（直连，无需转发） |
+| **Node.js 能力** | 受限 | 完整 Node.js 能力 |
+| **流式传输** | 需自己实现 | WebSocket 原生支持 |
+| **调试** | 较困难 | 独立进程，可单独调试 |
+| **重启恢复** | 需重新初始化 | Main 自动重启，Renderer 重连 |
 
 ### 类型安全的 IPC 封装
 

@@ -168,7 +168,7 @@ vscode.tasks.executeTask(task);
 
 ---
 
-## 对 AI Chat + Editor 应用的启示
+## 对 Coding Agent Desktop 应用的启示
 
 | 功能 | 是否适用 | 说明 |
 |------|----------|------|

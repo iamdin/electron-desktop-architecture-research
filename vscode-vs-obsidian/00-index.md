@@ -1,6 +1,6 @@
 # VSCode vs Obsidian 架构对比
 
-为 AI Chat + Editor 的 Electron 应用提供架构设计参考。
+为 Coding Agent Desktop 的 Electron 应用提供架构设计参考。
 
 两者都是 Electron + TypeScript 技术栈，都有成熟的插件系统，但做出了不同的架构取舍。
 

@@ -471,7 +471,7 @@ new MyModal(this.app, (result) => {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 视图类型设计
 

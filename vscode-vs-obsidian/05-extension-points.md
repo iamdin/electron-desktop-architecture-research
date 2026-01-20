@@ -565,7 +565,7 @@ this.addCommand({
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 混合方案：声明 + 注册
 
@@ -626,7 +626,7 @@ export default class MyPlugin implements Plugin {
 ### 推荐的扩展点
 
 ```typescript
-// 适合 AI Chat + Editor 的扩展点
+// 适合 Coding Agent Desktop 的扩展点
 
 interface ContributionPoints {
   // 1. 命令

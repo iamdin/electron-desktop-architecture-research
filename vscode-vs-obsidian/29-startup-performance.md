@@ -104,7 +104,7 @@ define(['vs/base/common/lifecycle'], function(lifecycle) {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ```typescript
 // 分阶段启动

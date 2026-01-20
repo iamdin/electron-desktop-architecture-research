@@ -362,11 +362,11 @@ export default class CodeRunnerPlugin extends Plugin {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 调试需求评估
 
-对于 AI Chat + Editor 应用，完整的调试支持可能不是核心需求，但可以考虑：
+对于 Coding Agent Desktop 应用，完整的调试支持可能不是核心需求，但可以考虑：
 
 ```typescript
 // 1. 简化的代码执行

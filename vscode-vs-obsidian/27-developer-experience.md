@@ -310,7 +310,7 @@ declare module 'obsidian' {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### CLI 脚手架工具
 

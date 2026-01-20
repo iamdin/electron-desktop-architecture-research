@@ -292,7 +292,7 @@ class MyView extends ItemView {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 主题系统设计
 

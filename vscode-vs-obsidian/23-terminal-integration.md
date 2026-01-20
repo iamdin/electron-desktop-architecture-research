@@ -342,11 +342,11 @@ export default class ShellPlugin extends Plugin {
 
 ---
 
-## 对 AI Chat + Editor 应用的建议
+## 对 Coding Agent Desktop 应用的建议
 
 ### 终端需求评估
 
-对于 AI Chat + Editor，终端可能是重要功能：
+对于 Coding Agent Desktop，终端可能是重要功能：
 
 ```typescript
 // 终端服务接口
