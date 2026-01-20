@@ -62,43 +62,71 @@
 ### 一、基础架构
 
 #### 1. 进程架构
-> 📖 [01-process-architecture.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/01-process-architecture.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/01-process-architecture.md) · **核心问题**：插件跑在哪个进程？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 多进程：Main + Renderer + Extension Host | 单进程：Main + Renderer |
-| 插件独立进程，崩溃隔离 | 插件主线程运行 |
+进程架构决定了插件崩溃是否影响主应用、插件能访问哪些能力、以及通信成本。
 
-**推荐**：混合架构（UI/插件单进程 + AI Worker 独立）
-**理由**：AI 耗时操作独立，插件保持简单
+| 维度 | VSCode（多进程隔离） | Obsidian（单进程共享） |
+|------|---------------------|----------------------|
+| **架构** | Main + Renderer + Extension Host 独立进程 | Main + Renderer，插件同进程运行 |
+| **崩溃影响** | ✅ 插件崩溃不影响主界面，可重启 | ❌ 插件崩溃可能导致整个应用崩溃 |
+| **DOM 访问** | ❌ 需通过 Webview（iframe 隔离） | ✅ 直接操作，零开销 |
+| **通信成本** | IPC 序列化开销（~1-5ms/调用） | 直接函数调用，无开销 |
+| **内存占用** | 较高（多进程开销约 50-100MB） | 较低（共享内存） |
+| **安全性** | ✅ 进程级隔离，插件无法访问内部 | ❌ 插件可访问任何内部状态 |
+
+**推荐**：混合架构
+```
+┌─ Main Process ─┐
+│ 窗口管理、系统集成 │
+└────────────────┘
+        │
+   ┌────┴────┬─────────────┐
+   ▼         ▼             ▼
+Renderer   AI Worker    (可选) 第三方插件隔离
+ UI+插件    LLM调用
+```
+**理由**：UI 和核心插件同进程保证性能，AI 耗时操作独立避免阻塞 UI
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 2. 模块系统
-> 📖 [02-module-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/02-module-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/02-module-system.md) · **核心问题**：代码如何组织和加载？
 
-| VSCode | Obsidian |
-|--------|----------|
-| AMD (require) 历史遗留 + ESM 迁移中 | ESM 原生 |
-| 复杂的模块加载器 | 简单直接 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **模块规范** | AMD (历史遗留) + ESM 迁移中 | 纯 ESM |
+| **加载器** | 自研复杂加载器 | 原生 import |
+| **Tree-shaking** | 受限（AMD 难以优化） | ✅ 完整支持 |
+| **工具链** | 需要特殊配置 | 标准 Vite/esbuild |
+| **迁移成本** | VSCode 正在艰难迁移 | 无历史包袱 |
 
 **推荐**：纯 ESM
-**理由**：现代标准，工具链支持好，无历史包袱
+**理由**：现代标准，Vite/esbuild 原生支持，打包体积小，新项目无需背负历史包袱
 **状态**：📝 已提议
 
 ---
 
 #### 3. IPC 通信
-> 📖 [03-ipc-communication.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/03-ipc-communication.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/03-ipc-communication.md) · **核心问题**：进程间如何通信？
 
-| VSCode | Obsidian |
-|--------|----------|
-| MessagePort + Protocol Buffer | EventEmitter |
-| 复杂的 RPC 协议 | 简单事件 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **通信方式** | MessagePort + Protocol Buffer RPC | 简单 EventEmitter |
+| **序列化** | 结构化协议，高效但复杂 | JSON，简单但体积大 |
+| **类型安全** | 强类型 RPC | 弱类型事件 |
+| **复杂度** | 高（需要维护协议定义） | 低 |
+| **适用场景** | 高频、大数据量通信 | 低频、简单数据 |
 
-**推荐**：Electron IPC + MessagePort（AI Worker）
-**理由**：Main-Renderer 用 Electron IPC，AI Worker 用 MessagePort
+**推荐**：分层通信
+| 场景 | 方案 |
+|-----|-----|
+| Main ↔ Renderer | Electron IPC (invoke/handle) |
+| Renderer ↔ AI Worker | MessagePort（流式传输友好） |
+| 组件间 | 事件总线 / Zustand |
+
+**理由**：根据场景选择合适方案，避免过度设计
 **状态**：📝 已提议
 
 ---
@@ -106,57 +134,112 @@
 ### 二、插件系统
 
 #### 4. 插件 API 设计
-> 📖 [04-plugin-api-design.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/04-plugin-api-design.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/04-plugin-api-design.md) · **核心问题**：暴露什么 API 给插件？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 命名空间分组 `vscode.window.*` | 单一 App 对象入口 |
-| 数百个 API | 几十个核心 API |
+| 维度 | VSCode（命名空间风格） | Obsidian（类实例风格） |
+|------|---------------------|----------------------|
+| **API 风格** | `vscode.window.*`, `vscode.workspace.*` | `this.app.vault.*`, `this.app.workspace.*` |
+| **API 数量** | ~30 个命名空间，数百个 API | 几十个核心 API |
+| **能力边界** | ✅ 严格白名单，只能用公开 API | ❌ 近乎无限制，可访问内部实现 |
+| **学习曲线** | 陡峭（文档完善但量大） | 平缓（API 少，示例多） |
+| **类型安全** | 完整 TypeScript 支持 | 完整 TypeScript 支持 |
+| **稳定性承诺** | 严格语义化版本，废弃策略清晰 | 相对宽松 |
 
-**推荐**：Obsidian 风格，单一 App 入口
-**理由**：API 简洁，学习成本低
+```typescript
+// VSCode 风格                          // Obsidian 风格
+vscode.window.showMessage('Hi')         new Notice('Hi')
+vscode.workspace.fs.readFile(uri)       this.app.vault.read(file)
+vscode.commands.registerCommand(...)    this.addCommand({...})
+```
+
+**推荐**：Obsidian 风格 + 分层权限
+- **Level 1 (Public)**：文档化、稳定，所有插件可用
+- **Level 2 (Extended)**：需声明权限（如 AI 调用、系统命令）
+- **Level 3 (Internal)**：仅官方插件
+
+**理由**：API 简洁降低学习成本，分层权限保证安全
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 5. 扩展点机制
-> 📖 [05-extension-points.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/05-extension-points.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/05-extension-points.md) · **核心问题**：插件如何扩展应用功能？
 
-| VSCode | Obsidian |
-|--------|----------|
-| package.json 声明式 contributes | 代码运行时注册 |
-| 支持懒加载 | 无懒加载 |
+| 维度 | VSCode（声明式） | Obsidian（命令式） |
+|------|-----------------|-------------------|
+| **注册方式** | `package.json` 声明 contributes | 代码中 `this.addCommand()` |
+| **懒加载** | ✅ 支持（按需激活插件） | ❌ 不支持 |
+| **类型检查** | JSON Schema 校验 | TypeScript 编译时检查 |
+| **灵活性** | 受限于预定义扩展点 | 完全灵活 |
+| **调试体验** | 需看 package.json + 代码 | 代码即文档 |
 
-**推荐**：运行时注册为主，简单声明为辅
-**理由**：灵活性优先，MVP 不需要复杂的懒加载
+```typescript
+// VSCode: package.json 声明           // Obsidian: 代码注册
+{                                      this.addCommand({
+  "contributes": {                       id: 'my-cmd',
+    "commands": [{                       name: 'My Command',
+      "command": "ext.myCmd",            callback: () => {...}
+      "title": "My Command"            })
+    }]
+  }
+}
+```
+
+**推荐**：运行时注册为主
+**理由**：代码即配置，调试方便，MVP 阶段不需要懒加载优化（插件少）
 **状态**：📝 已提议
 
 ---
 
 #### 6. 插件生命周期
-> 📖 [06-plugin-lifecycle.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/06-plugin-lifecycle.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/06-plugin-lifecycle.md) · **核心问题**：插件何时加载/卸载？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 懒激活（onCommand/onLanguage 等） | 启动时全部加载 |
-| 复杂的激活事件 | 简单的 onload/onunload |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **加载时机** | 懒激活（onCommand/onLanguage/onView...） | 启动时全部加载 |
+| **激活事件** | 20+ 种激活条件 | 无 |
+| **生命周期** | `activate()` / `deactivate()` | `onload()` / `onunload()` |
+| **启动影响** | ✅ 按需加载，启动快 | ❌ 插件多时启动慢 |
+| **实现复杂度** | 高（需维护激活状态机） | 低 |
 
-**推荐**：启动时加载，简单生命周期
-**理由**：MVP 插件少，无需懒加载优化
+**推荐**：简单生命周期（启动时加载）
+```typescript
+class MyPlugin extends Plugin {
+  onload() {   // 启动时调用
+    this.addCommand({...})
+    this.registerEvent(...)
+  }
+  onunload() { // 卸载时调用，自动清理 }
+}
+```
+**理由**：MVP 插件数量有限（<20），启动时全加载影响可忽略（<100ms），大幅降低复杂度
 **状态**：📝 已提议
 
 ---
 
 #### 7. 插件间通信
-> 📖 [07-plugin-communication.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/07-plugin-communication.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/07-plugin-communication.md) · **核心问题**：插件如何互相调用？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 通过 API 暴露服务 | 全局事件 + App 对象 |
-| 显式依赖声明 | 隐式共享 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **通信方式** | 通过 API 暴露服务 | 全局事件 + App 对象共享 |
+| **依赖管理** | `extensionDependencies` 显式声明 | 隐式（运行时检查） |
+| **类型安全** | 导出类型定义 | 需手动处理 |
+| **耦合度** | 低（接口隔离） | 高（直接引用） |
 
-**推荐**：事件总线 + 共享服务
-**理由**：简单直接，满足内部插件通信需求
+**推荐**：事件总线 + 服务注册
+```typescript
+// 插件 A 提供服务
+app.services.register('ai', aiService)
+
+// 插件 B 使用服务
+const ai = app.services.get<AIService>('ai')
+
+// 或通过事件
+app.events.emit('file:created', file)
+app.events.on('file:created', handler)
+```
+**理由**：MVP 阶段内部插件为主，简单直接即可，预留服务注册机制供后续扩展
 **状态**：📝 已提议
 
 ---
@@ -164,43 +247,97 @@
 ### 三、UI 系统
 
 #### 8. UI 布局
-> 📖 [08-ui-layout.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/08-ui-layout.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/08-ui-layout.md) · **核心问题**：界面如何组织？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 固定区域（侧边栏+编辑器+面板） | 灵活分栏（Workspace Leaf） |
-| 布局受限但清晰 | 高度灵活但复杂 |
+| 维度 | VSCode（固定区域） | Obsidian（灵活分栏） |
+|------|-------------------|---------------------|
+| **布局模型** | 固定区域：Activity Bar + Sidebar + Editor + Panel | Workspace Leaf 树形结构，任意分割 |
+| **灵活性** | 区域固定，内容可配 | 完全自由，用户可任意拖拽分栏 |
+| **复杂度** | 低（预定义槽位） | 高（需管理复杂树结构） |
+| **用户认知** | 清晰，学习成本低 | 灵活但可能混乱 |
+| **适用场景** | IDE（任务明确） | 笔记（个性化需求高） |
 
-**推荐**：固定三栏（侧边栏 + Chat + Editor）
-**理由**：场景明确，降低复杂度
+```
+VSCode 布局：                    Obsidian 布局：
+┌──┬────────┬─────┐              ┌─────┬─────┬─────┐
+│A │ Editor │ Pa- │              │  任意组合  │
+│c │ Group  │ nel │              ├─────┼─────┤
+│t │        │     │              │     │     │
+│  ├────────┤     │              │     │     │
+│B │ Editor │     │              └─────┴─────┘
+│a │        │     │
+│r │        │     │
+└──┴────────┴─────┘
+```
+
+**推荐**：固定三栏布局
+```
+┌──────┬────────────┬────────────┐
+│      │            │            │
+│ 侧边栏 │   Chat    │   Editor   │
+│ 文件树 │   对话区   │   代码区    │
+│      │            │            │
+└──────┴────────────┴────────────┘
+```
+**理由**：Agent Coding 场景明确（对话 + 编码），固定布局降低复杂度，用户认知清晰
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 9. 视图系统
-> 📖 [09-view-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/09-view-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/09-view-system.md) · **核心问题**：自定义视图如何实现？
 
-| VSCode | Obsidian |
-|--------|----------|
-| ViewContainer + View 注册 | ItemView 类继承 |
-| Webview 支持 | 原生 DOM |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **视图类型** | TreeView / WebviewView / CustomEditor | ItemView 类继承 |
+| **渲染方式** | Webview（iframe 隔离） | 原生 DOM 操作 |
+| **框架支持** | 任意（在 Webview 中） | 原生 JS，可用 React/Vue |
+| **通信开销** | postMessage 跨 iframe | 无（同进程） |
+| **安全性** | ✅ 隔离 | ❌ 可访问全局 |
+
+```typescript
+// VSCode: Webview 隔离              // Obsidian: 直接 DOM
+const panel = vscode.window         class MyView extends ItemView {
+  .createWebviewPanel(...)            onOpen() {
+panel.webview.html = '<html>...'        this.contentEl.createEl('div')
+panel.webview.postMessage({...})      }
+                                    }
+```
 
 **推荐**：React 组件注册
-**理由**：现代前端开发体验，组件化
+```typescript
+app.registerView('my-view', () => <MyViewComponent />)
+```
+**理由**：现代开发体验，类型安全，组件化复用，生态丰富
 **状态**：📝 已提议
 
 ---
 
 #### 10. 主题系统
-> 📖 [10-theme-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/10-theme-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/10-theme-system.md) · **核心问题**：如何支持主题定制？
 
-| VSCode | Obsidian |
-|--------|----------|
-| JSON 主题 + TextMate 语法 | CSS 变量 + CSS 片段 |
-| 细粒度（数百变量） | 中等粒度 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **主题格式** | JSON 定义 + TextMate 语法配色 | CSS 变量 + CSS 片段 |
+| **变量数量** | 数百个（workbench + editor + token） | 几十个核心变量 |
+| **定制粒度** | 极细（每个 UI 元素可配） | 中等（主要颜色可配） |
+| **开发成本** | 高（需理解 token scope） | 低（改 CSS 即可） |
+| **社区生态** | 海量主题 | 活跃社区 |
 
-**推荐**：CSS 变量 + 深色/浅色双主题
-**理由**：简单实用，满足基本需求
+**推荐**：CSS 变量 + 双主题
+```css
+:root {
+  --bg-primary: #ffffff;
+  --text-primary: #1a1a1a;
+  --accent: #0066cc;
+}
+[data-theme="dark"] {
+  --bg-primary: #1e1e1e;
+  --text-primary: #d4d4d4;
+  --accent: #4fc3f7;
+}
+```
+**理由**：CSS 变量原生支持、调试方便、性能好；先做好明/暗双主题，后续可开放主题 API
 **状态**：📝 已提议
 
 ---
@@ -208,43 +345,77 @@
 ### 四、交互系统
 
 #### 11. 命令系统
-> 📖 [11-command-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/11-command-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/11-command-system.md) · **核心问题**：功能入口如何统一？
 
-| VSCode | Obsidian |
-|--------|----------|
-| Command Palette 核心 | Command Palette |
-| 命令 ID + 参数 | 命令 ID + 回调 |
+命令系统是应用功能的统一入口，所有操作都可注册为命令，通过快捷键、菜单、命令面板调用。
 
-**推荐**：命令注册 + Command Palette
-**理由**：标准交互模式，用户熟悉
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **命令面板** | `Ctrl+Shift+P` 核心交互 | `Ctrl+P` 核心交互 |
+| **命令结构** | ID + 参数 + when 条件 | ID + 名称 + 回调 |
+| **参数支持** | ✅ 支持复杂参数传递 | ❌ 仅回调函数 |
+| **条件执行** | when 表达式控制显示/启用 | 代码中判断 |
+
+```typescript
+// 两者注册方式类似
+vscode.commands.registerCommand('ext.run', (arg) => {...})
+this.addCommand({ id: 'run', name: 'Run', callback: () => {...} })
+```
+
+**推荐**：命令注册 + Command Palette（Cmd/Ctrl + K）
+**理由**：标准交互模式，用户熟悉，所有功能可通过命令发现
 **状态**：📝 已提议
 
 ---
 
 #### 12. 快捷键系统
-> 📖 [12-keybinding-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/12-keybinding-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/12-keybinding-system.md) · **核心问题**：快捷键如何管理？
 
-| VSCode | Obsidian |
-|--------|----------|
-| JSON 配置 + when 条件 | Hotkey 管理器 |
-| 复杂的上下文条件 | 简单绑定 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **配置方式** | JSON 配置 (keybindings.json) | UI 热键管理器 |
+| **条件绑定** | `when` 表达式（editorFocus && !suggestWidgetVisible） | 无条件支持 |
+| **冲突处理** | 后定义覆盖 + 提示 | 后定义覆盖 |
+| **跨平台** | 自动 Cmd/Ctrl 转换 | 手动区分 |
 
-**推荐**：简单快捷键绑定，支持自定义
-**理由**：MVP 无需复杂的上下文条件
+**推荐**：简单快捷键绑定
+- 命令绑定默认快捷键
+- 用户可在设置中自定义
+- 自动处理 Mac/Win 差异（Cmd ↔ Ctrl）
+
+**理由**：MVP 无需复杂的上下文条件，简单的全局/区域快捷键即可
 **状态**：📝 已提议
 
 ---
 
 #### 13. 右键菜单
-> 📖 [13-context-menu.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/13-context-menu.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/13-context-menu.md) · **核心问题**：上下文菜单如何组织？
 
-| VSCode | Obsidian |
-|--------|----------|
-| menu contributes 声明式 | Menu 类 API |
-| 按区域分组 | 运行时构建 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **注册方式** | package.json 声明式 | Menu API 运行时注册 |
+| **菜单分组** | editor/context、explorer/context 等 | 手动分组 |
+| **条件显示** | when 表达式 | 代码控制 |
 
-**推荐**：运行时注册菜单项
-**理由**：灵活，与插件系统一致
+```typescript
+// VSCode: 声明式                    // Obsidian: 命令式
+"menus": {                          this.registerEvent(
+  "editor/context": [{                this.app.workspace.on('file-menu',
+    "command": "ext.action",            (menu, file) => {
+    "when": "editorHasSelection"          menu.addItem(item => {...})
+  }]                                    })
+}                                     )
+```
+
+**推荐**：运行时注册 + 区域分组
+```typescript
+app.menus.register('editor', (menu, context) => {
+  if (context.hasSelection) {
+    menu.add({ label: 'Ask AI', action: () => {...} })
+  }
+})
+```
+**理由**：灵活，与插件系统风格一致，便于动态控制
 **状态**：📝 已提议
 
 ---
@@ -252,44 +423,103 @@
 ### 五、编辑器核心
 
 #### 14. 编辑器引擎
-> 📖 [14-editor-engine.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/14-editor-engine.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/14-editor-engine.md) · **核心问题**：用什么编辑器引擎？
 
-| Monaco (VSCode) | CodeMirror (Obsidian) |
-|-----------------|----------------------|
-| 包大小 ~2.5MB | 包大小 ~500KB |
-| VSCode 同款体验 | 轻量可定制 |
-| 大文件优秀 | 移动端友好 |
+编辑器引擎决定了代码编辑能力的上限。主流选择：
+
+| 维度 | Monaco (VSCode 同款) | CodeMirror 6 (Obsidian) |
+|------|---------------------|------------------------|
+| **包大小** | ~2-3 MB | ~50KB 核心，按需 ~500KB |
+| **架构** | 面向对象，内部可变状态 | 函数式，不可变状态 |
+| **语法高亮** | TextMate 语法（复杂但强大） | Lezer 解析器（现代高效） |
+| **语言支持** | 内置 TS/JS/CSS/HTML 完整支持 | 需安装语言包 |
+| **大文件** | ✅ 优秀（虚拟化渲染） | ✅ 优秀 |
+| **移动端** | ⚠️ 一般 | ✅ 好 |
+| **学习曲线** | 中等（API 多但文档全） | 陡峭（函数式思维） |
+| **AI 集成** | 内置 IntelliSense 框架 | 需自建 |
+
+**适用场景对比**：
+| 场景 | 推荐 |
+|-----|-----|
+| IDE 类应用（需要 LSP/智能提示） | Monaco |
+| 笔记/轻量编辑 | CodeMirror |
+| 富文本混排 | ProseMirror |
+| 极致轻量 | CodeMirror |
 
 **推荐**：Monaco Editor
-**理由**：产品定位需要专业代码编辑体验
+**理由**：
+1. 产品定位是 Agent Coding，需要专业代码编辑体验
+2. 内置 TypeScript/JavaScript 完整支持，无需额外配置
+3. IntelliSense 框架便于集成 AI 补全
+4. 与 VSCode 体验一致，用户零学习成本
+
 **状态**：📝 已提议
 
 ---
 
 #### 15. 编辑器扩展
-> 📖 [15-editor-extension.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/15-editor-extension.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/15-editor-extension.md) · **核心问题**：如何扩展编辑器能力？
 
-| VSCode/Monaco | CodeMirror |
-|---------------|------------|
-| Language API + Providers | Extension + Facet |
-| 丰富的语言支持 | 模块化扩展 |
+| 维度 | Monaco | CodeMirror 6 |
+|------|--------|--------------|
+| **扩展模型** | Provider 模式（注册服务提供者） | Extension 组合（函数式组合） |
+| **补全** | `registerCompletionItemProvider` | `autocompletion()` 扩展 |
+| **悬停** | `registerHoverProvider` | `hoverTooltip()` 扩展 |
+| **诊断** | `setModelMarkers` | `linter()` 扩展 |
+| **动态更新** | 调用 API 更新 | dispatch 状态变更 |
 
-**推荐**：Monaco Language API
-**理由**：与编辑器引擎选择一致
+```typescript
+// Monaco: Provider 模式
+monaco.languages.registerCompletionItemProvider('typescript', {
+  provideCompletionItems: (model, position) => ({
+    suggestions: [{ label: 'hello', kind: 1, insertText: 'hello()' }]
+  })
+})
+
+// CodeMirror: 函数式组合
+const myExtension = autocompletion({
+  override: [(context) => ({ from: context.pos, options: [...] })]
+})
+```
+
+**推荐**：Monaco Language API + AI Provider
+**理由**：Provider 模式直观易懂，便于插入 AI 补全逻辑
 **状态**：📝 已提议
 
 ---
 
 #### 16. 装饰系统
-> 📖 [16-decoration-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/16-decoration-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/16-decoration-system.md) · **核心问题**：如何在代码上叠加视觉效果？
 
-| VSCode/Monaco | CodeMirror |
-|---------------|------------|
-| deltaDecorations API | Decoration + StateField |
-| 高性能增量更新 | 响应式更新 |
+装饰系统用于高亮、标记、内联提示等，对 AI 应用至关重要：
+
+| 维度 | Monaco | CodeMirror 6 |
+|------|--------|--------------|
+| **API 风格** | `deltaDecorations` 增量更新 | StateField + Decoration |
+| **性能** | ✅ 高效增量 | ✅ 高效（不可变） |
+| **类型** | 行装饰、内联装饰、边栏装饰 | Mark / Widget / Line |
+
+**AI 应用场景**：
+| 场景 | 实现方式 |
+|-----|---------|
+| AI 修改高亮 | 行装饰（背景色） |
+| 错误/警告标记 | 波浪线 + 边栏图标 |
+| AI 建议预览 | 内联灰色文本（Ghost Text） |
+| Diff 对比 | 删除线 + 新增高亮 |
+
+```typescript
+// Monaco 装饰示例
+editor.deltaDecorations([], [{
+  range: new Range(1, 1, 1, 10),
+  options: {
+    inlineClassName: 'ai-suggestion',  // 内联样式
+    hoverMessage: { value: 'AI 建议' }  // 悬停提示
+  }
+}])
+```
 
 **推荐**：Monaco Decorations
-**理由**：用于 AI 修改高亮、错误标记等
+**理由**：满足 AI 场景所有装饰需求（高亮、预览、Diff）
 **状态**：📝 已提议
 
 ---
@@ -297,57 +527,143 @@
 ### 六、数据与状态
 
 #### 17. 状态管理
-> 📖 [17-state-management.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/17-state-management.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/17-state-management.md) · **核心问题**：应用状态如何管理？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 服务类 + 依赖注入 | 全局 App 对象 |
-| 复杂但可测试 | 简单但耦合 |
+| 维度 | VSCode（分散式） | Obsidian（集中式） |
+|------|-----------------|-------------------|
+| **架构** | 各服务管理自己的状态 | 全局 App 对象 |
+| **状态变更** | EventEmitter 通知 | 直接修改 + 事件 |
+| **依赖注入** | ✅ 完整 DI 容器 | ❌ 无 |
+| **可测试性** | ✅ 易于 Mock | ⚠️ 需要初始化 App |
+| **复杂度** | 高（需理解服务边界） | 低 |
+
+**现代方案对比**：
+| 方案 | 特点 | 适用场景 |
+|-----|-----|---------|
+| **Zustand** | 极简 API，无样板代码 | 中小型应用 |
+| Redux Toolkit | 完整生态，DevTools | 大型应用 |
+| MobX | 响应式，自动追踪 | 复杂交互 |
+| Jotai | 原子化，按需订阅 | 精细控制 |
+
+```typescript
+// Zustand 示例
+const useChatStore = create((set) => ({
+  messages: [],
+  isLoading: false,
+  sendMessage: async (content) => {
+    set({ isLoading: true })
+    const response = await aiService.chat(content)
+    set(state => ({
+      messages: [...state.messages, response],
+      isLoading: false
+    }))
+  }
+}))
+```
 
 **推荐**：Zustand
-**理由**：现代方案，简洁且可维护
+**理由**：
+1. API 极简，学习成本低
+2. TypeScript 友好
+3. 支持中间件（persist、devtools）
+4. 体积小（<2KB）
+5. 与 React 无缝集成
+
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 18. 设置系统
-> 📖 [18-settings-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/18-settings-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/18-settings-system.md) · **核心问题**：用户配置如何管理？
 
-| VSCode | Obsidian |
-|--------|----------|
-| JSON Schema 定义 | Setting Tab UI |
-| 配置贡献点 | 插件自定义 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **配置格式** | JSON + JSON Schema 校验 | UI 表单 |
+| **编辑方式** | 直接编辑 JSON / Settings UI | 只能通过 UI |
+| **插件配置** | contributes.configuration | PluginSettingTab |
+| **作用域** | User / Workspace / Folder | 全局 / Vault |
+| **高级用户** | ✅ 可直接改 JSON | ❌ 必须用 UI |
 
 **推荐**：Settings UI + JSON 存储
-**理由**：用户友好，开发简单
+```typescript
+// 设置 Schema
+interface AppSettings {
+  theme: 'light' | 'dark' | 'system'
+  fontSize: number
+  aiModel: string
+  apiKey: string  // 敏感信息加密存储
+}
+
+// 存储位置
+~/.config/app/settings.json  // 用户设置
+/project/.app/settings.json  // 项目设置（可选）
+```
+**理由**：UI 对普通用户友好，JSON 存储便于备份和版本控制
 **状态**：📝 已提议
 
 ---
 
 #### 19. 文件系统
-> 📖 [19-file-system.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/19-file-system.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/19-file-system.md) · **核心问题**：如何访问和管理文件？
 
-| VSCode | Obsidian |
-|--------|----------|
-| FileSystemProvider 抽象 | Vault API |
-| 支持远程（SSH/WSL） | 仅本地 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **抽象层** | FileSystemProvider（虚拟文件系统） | Vault API |
+| **远程支持** | ✅ SSH/WSL/Container | ❌ 仅本地 |
+| **统一 API** | 本地/远程同一接口 | 仅本地 |
+| **复杂度** | 高 | 低 |
 
-**推荐**：直接文件操作（Node.js fs）
-**理由**：MVP 仅本地，无需抽象层
+```typescript
+// VSCode: 抽象接口                   // Obsidian: 直接操作
+vscode.workspace.fs.readFile(uri)    this.app.vault.read(file)
+// 支持 file:// ssh:// vscode-remote://
+```
+
+**推荐**：直接文件操作（Node.js fs）+ 轻量封装
+```typescript
+// 简单封装，预留扩展
+class FileService {
+  async read(path: string): Promise<string> {
+    return fs.readFile(path, 'utf-8')
+  }
+  async write(path: string, content: string): Promise<void> {
+    await fs.writeFile(path, content)
+  }
+  watch(path: string, callback: WatchCallback): Disposable {
+    return chokidar.watch(path).on('change', callback)
+  }
+}
+```
+**理由**：MVP 仅本地文件，无需复杂抽象；简单封装便于后续扩展
 **状态**：📝 已提议
 
 ---
 
 #### 20. 缓存与持久化
-> 📖 [20-cache-persistence.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/20-cache-persistence.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/20-cache-persistence.md) · **核心问题**：数据如何持久化？
 
-| VSCode | Obsidian |
-|--------|----------|
-| Memento API + SQLite | localStorage + 文件 |
-| 工作区/全局分离 | 简单键值 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **存储方案** | Memento API + SQLite | localStorage + JSON 文件 |
+| **数据分层** | globalState / workspaceState | 插件 data.json |
+| **性能** | ✅ SQLite 适合大数据 | ⚠️ JSON 大文件慢 |
 
-**推荐**：Electron Store + 文件系统
-**理由**：简单可靠，满足基本需求
+**存储策略建议**：
+| 数据类型 | 存储方案 | 示例 |
+|---------|---------|------|
+| 应用设置 | electron-store (JSON) | 主题、字号 |
+| 会话历史 | SQLite (better-sqlite3) | 聊天记录 |
+| 临时缓存 | 内存 + LRU | 文件内容缓存 |
+| 敏感信息 | Electron safeStorage | API Key |
+
+**推荐**：分层存储
+```
+~/.config/app/
+├── settings.json      # electron-store
+├── chat.db           # SQLite（对话历史）
+└── cache/            # 临时文件
+```
+**理由**：设置用 JSON（简单），对话历史用 SQLite（支持搜索、量大），敏感信息用系统密钥链
 **状态**：📝 已提议
 
 ---
@@ -355,71 +671,161 @@
 ### 七、开发者功能
 
 #### 21. 语言服务
-> 📖 [21-language-service.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/21-language-service.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/21-language-service.md) · **核心问题**：代码智能从哪来？
 
-| VSCode | Obsidian |
-|--------|----------|
-| LSP 完整支持 | 无标准协议 |
-| 丰富的语言功能 | 基础补全 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **协议支持** | LSP (Language Server Protocol) | 无标准协议 |
+| **智能功能** | 补全/跳转/重构/诊断 全套 | 基础补全 |
+| **语言覆盖** | 几乎所有语言 | 仅 Markdown |
+| **实现成本** | 高（需要 LSP 集成） | 低 |
 
-**推荐**：Monaco 内置 + AI 补全
-**理由**：基础语言功能用 Monaco，智能补全用 AI
+**两种智能补全路径**：
+| 方案 | 优点 | 缺点 |
+|-----|-----|-----|
+| **传统 LSP** | 精确、低延迟、离线可用 | 集成复杂、每语言需单独配置 |
+| **AI 补全** | 跨语言、理解上下文、生成复杂代码 | 延迟较高、依赖网络 |
+
+**推荐**：Monaco 内置 + AI 增强
+```
+┌─────────────────────────────────────────┐
+│ 基础智能（Monaco 内置）                    │
+│ - TS/JS: 完整类型推断、跳转              │
+│ - HTML/CSS: 基础补全                    │
+└─────────────────────────────────────────┘
+                  +
+┌─────────────────────────────────────────┐
+│ AI 增强（产品特色）                        │
+│ - 自然语言转代码                         │
+│ - 上下文感知的代码生成                    │
+│ - 代码解释和重构建议                      │
+└─────────────────────────────────────────┘
+```
+**理由**：TS/JS 用 Monaco 内置能力（零成本），其他语言靠 AI 补齐，这是产品差异化点
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 22. 调试功能
-> 📖 [22-debug-capability.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/22-debug-capability.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/22-debug-capability.md) · **核心问题**：是否需要调试器？
 
-| VSCode | Obsidian |
-|--------|----------|
-| DAP 完整支持 | 无 |
-| 丰富的调试 UI | - |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **协议** | DAP (Debug Adapter Protocol) | 无 |
+| **功能** | 断点/变量/调用栈/Watch | 无 |
+| **集成成本** | 高（需为每种语言配置 DA） | - |
 
-**推荐**：MVP 不做，后续考虑
-**理由**：非核心功能，AI 可协助调试
+**MVP 考量**：
+| 因素 | 分析 |
+|-----|-----|
+| 用户需求 | Agent Coding 用户可能更依赖 AI 帮助调试 |
+| 实现成本 | DAP 集成复杂度高 |
+| 替代方案 | AI 可以分析错误、建议修复 |
+
+**推荐**：MVP 不做调试器
+**理由**：
+1. 非核心功能，实现成本高
+2. AI 可以协助分析错误和建议修复（产品特色）
+3. 用户可外部使用 VSCode/DevTools 调试
+
 **状态**：📝 已提议
 
 ---
 
 #### 23. 终端集成
-> 📖 [23-terminal-integration.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/23-terminal-integration.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/23-terminal-integration.md) · **核心问题**：是否需要内置终端？
 
-| VSCode | Obsidian |
-|--------|----------|
-| xterm.js 完整集成 | 无 |
-| 多终端/分屏 | - |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **实现** | xterm.js + node-pty | 无 |
+| **功能** | 完整终端模拟、多标签、分屏 | - |
+| **集成成本** | 中等 | - |
 
-**推荐**：AI 代理执行命令
-**理由**：符合 Agent 产品理念，用户通过对话执行命令
+**Agent Coding 场景分析**：
+```
+传统 IDE 流程：                    Agent Coding 流程：
+用户 → 写代码 → 手动执行命令         用户 → 对话 → AI 执行命令
+      ↓                                    ↓
+    终端输出                          结果展示在对话中
+```
+
+**两种方案**：
+| 方案 | 优点 | 缺点 |
+|-----|-----|-----|
+| **内置终端** | 用户熟悉、直接控制 | 与 Agent 理念冲突 |
+| **AI 代理执行** | 符合 Agent 理念、可审计 | 复杂命令交互受限 |
+
+**推荐**：AI 代理执行 + 简化输出展示
+```
+用户: "运行测试"
+AI: 正在执行 npm test...
+    ┌─────────────────────────┐
+    │ PASS src/app.test.ts    │
+    │ ✓ renders correctly     │
+    │ Tests: 3 passed         │
+    └─────────────────────────┘
+```
+**理由**：符合 Agent 产品定位，用户通过对话完成操作，保持体验一致性
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 24. 搜索功能
-> 📖 [24-search-capability.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/24-search-capability.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/24-search-capability.md) · **核心问题**：如何在代码库中搜索？
 
-| VSCode | Obsidian |
-|--------|----------|
-| ripgrep 集成 | 内置搜索 |
-| 正则/文件过滤 | 全文搜索 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **搜索引擎** | ripgrep（极快） | 内置全文搜索 |
+| **功能** | 正则、文件过滤、替换 | 基础搜索 |
+| **性能** | ✅ 大型项目毫秒级 | ⚠️ 大文件慢 |
 
-**推荐**：基础文件搜索 + AI 语义搜索
-**理由**：结合传统搜索和 AI 能力
+**Agent Coding 搜索需求**：
+| 场景 | 传统搜索 | AI 搜索 |
+|-----|---------|--------|
+| "找到所有 TODO" | ✅ 精确匹配 | 可以 |
+| "用户认证相关代码" | ❌ 不知道搜什么 | ✅ 语义理解 |
+| "这个函数在哪里定义" | ✅ 符号搜索 | ✅ 可以回答 |
+
+**推荐**：基础搜索 + AI 语义搜索
+```
+搜索入口：
+├── 快速搜索 (Cmd+P) → 文件名模糊匹配
+├── 全文搜索 (Cmd+Shift+F) → ripgrep
+└── AI 搜索 (对话) → "找到处理支付的代码"
+```
+**理由**：基础搜索用成熟工具（ripgrep），AI 搜索作为差异化能力
 **状态**：📝 已提议
 
 ---
 
 #### 25. 版本控制
-> 📖 [25-version-control.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/25-version-control.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/25-version-control.md) · **核心问题**：Git 集成到什么程度？
 
-| VSCode | Obsidian |
-|--------|----------|
-| SCM API + Git 扩展 | 社区插件 |
-| 完整 Git UI | 基础支持 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **集成方式** | SCM API + Git 扩展 | 社区插件 |
+| **功能** | 完整 Git UI（暂存/提交/分支/合并） | 基础操作 |
+| **Diff 查看** | 内置 Diff Editor | 插件支持 |
 
-**推荐**：基础 Git 状态显示 + AI 辅助
-**理由**：AI 可以帮助执行 Git 命令
+**MVP 功能优先级**：
+| 优先级 | 功能 | 实现方式 |
+|-------|-----|---------|
+| **P0** | 文件修改状态显示 | 文件树图标 |
+| **P0** | Diff 预览 | Monaco Diff Editor |
+| **P1** | 基础 Git 操作 | AI 代理执行 |
+| **P2** | 分支管理 UI | 后续迭代 |
+
+**推荐**：状态显示 + Diff + AI 辅助
+```
+用户: "提交这些更改"
+AI: 检测到 3 个文件修改：
+    M src/app.ts
+    A src/utils.ts
+    D src/old.ts
+    建议提交信息: "feat: add utility functions"
+    确认提交？
+```
+**理由**：Git 状态和 Diff 是刚需，复杂操作交给 AI 代理，降低 UI 复杂度
 **状态**：📝 已提议
 
 ---
@@ -427,29 +833,51 @@
 ### 八、生态系统
 
 #### 26. 插件市场
-> 📖 [26-plugin-marketplace.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/26-plugin-marketplace.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/26-plugin-marketplace.md) · **核心问题**：如何分发和发现插件？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 官方市场 + 审核 | 社区市场 |
-| 企业级基础设施 | 轻量运营 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **市场形态** | 官方市场 (marketplace.visualstudio.com) | 社区市场 |
+| **审核机制** | 自动扫描 + 人工审核 | 社区审核 |
+| **分发方式** | 一键安装 | 一键安装 / 手动 |
+| **运营成本** | 高（服务器、审核团队） | 低（GitHub 托管） |
+| **生态规模** | 40000+ 扩展 | 1500+ 插件 |
 
-**推荐**：MVP 不做，后续考虑
-**理由**：先专注核心功能
+**MVP 阶段策略**：
+| 阶段 | 策略 |
+|-----|-----|
+| MVP | 内置核心插件，不开放市场 |
+| V1 | 允许手动安装第三方插件 |
+| V2 | 开放简单市场（GitHub 托管） |
+| 未来 | 考虑官方市场 |
+
+**推荐**：MVP 不做插件市场
+**理由**：先专注核心功能，内置满足 80% 需求的核心插件
 **状态**：📝 已提议
 
 ---
 
 #### 27. 开发者体验
-> 📖 [27-developer-experience.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/27-developer-experience.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/27-developer-experience.md) · **核心问题**：如何让开发者高效开发插件？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 完善文档 + 脚手架 | 示例 + 社区文档 |
-| yo generator | 模板仓库 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **文档** | 完善官方文档 + API 参考 | 官方文档 + 社区补充 |
+| **脚手架** | yo generator | 模板仓库 |
+| **调试** | Extension Host 调试 | console.log + DevTools |
+| **示例** | 官方示例仓库 | 官方 + 社区示例 |
+| **类型支持** | @types/vscode | obsidian.d.ts |
+
+**MVP 开发者支持**：
+| 优先级 | 内容 |
+|-------|-----|
+| **P0** | TypeScript 类型定义 |
+| **P0** | 内部开发文档 |
+| **P1** | 插件模板仓库 |
+| **P2** | 热重载开发环境 |
 
 **推荐**：内部文档 + 插件模板
-**理由**：MVP 阶段内部开发为主
+**理由**：MVP 阶段以内部开发为主，后续开放时再完善开发者文档
 **状态**：📝 已提议
 
 ---
@@ -457,43 +885,85 @@
 ### 九、安全与性能
 
 #### 28. 安全模型
-> 📖 [28-security-model.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/28-security-model.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/28-security-model.md) · **核心问题**：如何保护用户安全？
 
-| VSCode | Obsidian |
-|--------|----------|
-| Workspace Trust + 进程隔离 | 最小沙箱 |
-| 细粒度权限 | 信任用户 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **信任模型** | Workspace Trust（打开项目需确认） | 信任用户选择 |
+| **插件隔离** | ✅ Extension Host 进程隔离 | ❌ 同进程无隔离 |
+| **权限控制** | 细粒度（文件访问、网络等） | 无 |
+| **代码执行** | 受限环境 | 完全访问 |
 
-**推荐**：简单确认机制
-**理由**：AI 操作需确认，插件暂不开放
+**AI 应用安全考量**：
+| 风险 | 缓解措施 |
+|-----|---------|
+| AI 执行危险命令 | **确认机制**：rm、git push 等需用户确认 |
+| 敏感文件访问 | 排除 .env、密钥文件 |
+| API Key 泄露 | Electron safeStorage 加密存储 |
+| 插件恶意行为 | MVP 不开放第三方插件 |
+
+**推荐**：分级确认机制
+```
+操作风险等级：
+🟢 低风险（自动执行）：读文件、代码补全
+🟡 中风险（显示预览）：修改文件、生成代码
+🔴 高风险（需确认）：删除文件、执行系统命令、网络请求
+```
+**理由**：AI 操作需要适度的用户确认，平衡安全性和流畅性
 **状态**：⚠️ 需重点讨论
 
 ---
 
 #### 29. 启动性能
-> 📖 [29-startup-performance.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/29-startup-performance.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/29-startup-performance.md) · **核心问题**：如何保证启动速度？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 2-4 秒（懒加载优化） | <1 秒 |
-| 复杂的启动优化 | 轻量架构 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **冷启动** | 2-4 秒 | <1 秒 |
+| **优化策略** | 懒加载、代码分割、缓存 | 轻量架构 |
+| **复杂度** | 高（大量优化代码） | 低 |
 
-**推荐**：保持简单架构
-**理由**：架构简单自然启动快
+**启动优化策略**：
+| 策略 | 效果 | 复杂度 | MVP 采用 |
+|-----|-----|--------|---------|
+| 轻量架构 | ⭐⭐⭐ | 低 | ✅ |
+| 代码分割 | ⭐⭐ | 中 | ✅ |
+| 插件懒加载 | ⭐⭐ | 高 | ❌ |
+| V8 快照 | ⭐ | 高 | ❌ |
+
+**目标**：冷启动 < 2 秒，热启动 < 1 秒
+
+**推荐**：保持简单架构 + 基础优化
+**理由**：简单架构自然启动快，复杂优化 ROI 低（MVP 功能不多）
 **状态**：📝 已提议
 
 ---
 
 #### 30. 运行时性能
-> 📖 [30-runtime-performance.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/30-runtime-performance.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/30-runtime-performance.md) · **核心问题**：如何保证运行流畅？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 虚拟列表/懒渲染 | 按需渲染 |
-| 复杂的性能监控 | 轻量实现 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **长列表** | 虚拟化渲染 | 按需渲染 |
+| **大文件** | 分块加载 + 视口渲染 | 限制文件大小 |
+| **监控** | 内置性能面板 | DevTools |
+
+**关键性能场景**：
+| 场景 | 指标 | 优化策略 |
+|-----|-----|---------|
+| 编辑器输入 | 输入延迟 < 16ms | Monaco 内置优化 |
+| AI 响应 | 首 token < 500ms | 流式输出 |
+| 文件切换 | 切换 < 100ms | 预加载相邻文件 |
+| 对话列表 | 滚动 60fps | 虚拟列表（大量消息时） |
 
 **推荐**：按需优化
-**理由**：先保证功能，出现问题再针对性优化
+```
+性能优化原则：
+1. 先实现功能，性能出问题再优化
+2. 优化前先测量，找到真正瓶颈
+3. 优先解决用户可感知的性能问题
+```
+**理由**：过早优化是万恶之源，MVP 阶段功能优先
 **状态**：📝 已提议
 
 ---
@@ -501,68 +971,132 @@
 ### 十、平台与体验
 
 #### 31. 多平台支持
-> 📖 [31-multi-platform.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/31-multi-platform.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/31-multi-platform.md) · **核心问题**：支持哪些平台？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 桌面 + Web | 桌面 + 移动 |
-| vscode.dev | iOS/Android |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **桌面** | Win / Mac / Linux | Win / Mac / Linux |
+| **Web** | ✅ vscode.dev | ❌ |
+| **移动** | ❌ | ✅ iOS / Android |
+| **技术栈** | Electron + Web Worker | Electron + Capacitor |
 
-**推荐**：桌面三端（Win/Mac/Linux）
-**理由**：Electron 原生支持，MVP 专注
+**平台策略对比**：
+| 策略 | 优点 | 缺点 |
+|-----|-----|-----|
+| **桌面优先**（推荐） | 全功能体验、本地性能 | 无移动端 |
+| Web 优先 | 跨平台、无安装 | 功能受限、依赖网络 |
+| 全平台 | 覆盖广 | 开发成本高 |
+
+**推荐**：桌面三端（Win / Mac / Linux）
+```
+平台优先级：
+P0: macOS（开发者主力平台）
+P0: Windows（用户量最大）
+P1: Linux（开发者次选）
+P2: Web（后续考虑）
+```
+**理由**：Electron 原生支持三端，MVP 专注桌面体验，Web/移动后续考虑
 **状态**：📝 已提议
 
 ---
 
 #### 32. 国际化
-> 📖 [32-internationalization.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/32-internationalization.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/32-internationalization.md) · **核心问题**：支持哪些语言？
 
-| VSCode | Obsidian |
-|--------|----------|
-| vscode-nls + 语言包扩展 | 内置多语言 |
-| 完善的翻译流程 | 社区贡献 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **方案** | vscode-nls + 语言包扩展 | 内置多语言 JSON |
+| **翻译流程** | Transifex 专业流程 | 社区 PR |
+| **语言数** | 10+ | 30+ |
 
-**推荐**：中英文双语
-**理由**：核心市场优先，预留 i18n 扩展
+**i18n 实现方案**：
+```typescript
+// 简单方案：i18next
+import i18n from 'i18next'
+
+i18n.init({
+  lng: 'zh-CN',
+  resources: {
+    'en': { translation: { welcome: 'Welcome' } },
+    'zh-CN': { translation: { welcome: '欢迎' } }
+  }
+})
+
+// 使用
+t('welcome') // => '欢迎'
+```
+
+**推荐**：中英文双语 + i18n 框架
+**理由**：中英文覆盖核心市场，i18n 框架预留扩展能力
 **状态**：📝 已提议
 
 ---
 
 #### 33. 无障碍
-> 📖 [33-accessibility.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/33-accessibility.md)
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/33-accessibility.md) · **核心问题**：如何支持残障用户？
 
-| VSCode | Obsidian |
-|--------|----------|
-| 完善的 ARIA + 屏幕阅读器 | 基础支持 |
-| 高对比度主题 | 社区主题 |
+| 维度 | VSCode | Obsidian |
+|------|--------|----------|
+| **屏幕阅读器** | 完善支持 | 基础支持 |
+| **键盘导航** | 全键盘可操作 | 大部分支持 |
+| **高对比度** | 官方主题 | 社区主题 |
+| **ARIA** | 完整标注 | 部分标注 |
+
+**基础无障碍清单**：
+| 类别 | 措施 | 优先级 |
+|-----|-----|-------|
+| 语义化 | HTML5 语义标签 | P0 |
+| 键盘 | 所有功能可键盘操作 | P0 |
+| ARIA | 动态内容标注 | P1 |
+| 主题 | 高对比度选项 | P1 |
+| 字号 | 可调节字体大小 | P1 |
 
 **推荐**：基础无障碍支持
-**理由**：语义化 HTML + ARIA 基础
+**理由**：语义化 HTML + ARIA 基础 + 键盘导航，成本低但覆盖大部分需求
 **状态**：📝 已提议
 
 ---
 
 ### 十一、特色参考
 
-#### 34. VSCode 特色
-> 📖 [34-vscode-specific.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/34-vscode-specific.md)
+#### 34. VSCode 特色功能
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/34-vscode-specific.md) · **可借鉴的创新功能**
 
-值得借鉴：
-- Remote Development（SSH/Container）→ 后续考虑
-- Live Share → 后续考虑
-- Copilot 集成 → 本项目核心功能
+| 特色功能 | 描述 | 借鉴价值 | MVP |
+|---------|-----|---------|-----|
+| **Remote Development** | SSH/Container/WSL 远程开发 | ⭐⭐⭐ 后续差异化能力 | ❌ |
+| **Live Share** | 实时协作编程 | ⭐⭐ AI 结对编程场景 | ❌ |
+| **Copilot** | AI 代码补全 | ⭐⭐⭐ 本项目核心 | ✅ |
+| **Profiles** | 配置档案切换 | ⭐ 不同项目不同配置 | ❌ |
+| **Timeline** | 文件历史时间线 | ⭐⭐ Git 集成 | ❌ |
+
+**核心借鉴**：Copilot 集成模式
+```
+Copilot 交互模式：
+1. 内联补全（Ghost Text）→ 我们的 AI 补全
+2. Chat 面板 → 我们的核心交互
+3. /命令 → 可借鉴的快捷指令
+```
 
 **状态**：📝 已提议
 
 ---
 
-#### 35. Obsidian 特色
-> 📖 [35-obsidian-specific.md](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/35-obsidian-specific.md)
+#### 35. Obsidian 特色功能
+> 📖 [详细研究](https://github.com/iamdin/electron-desktop-architecture-research/blob/main/vscode-vs-obsidian/35-obsidian-specific.md) · **可借鉴的创新功能**
 
-值得借鉴：
-- 本地优先 → 采纳
-- 双向链接 → 可用于知识管理场景
-- Graph View → 可视化代码关系（后续）
+| 特色功能 | 描述 | 借鉴价值 | MVP |
+|---------|-----|---------|-----|
+| **本地优先** | 数据存本地，隐私优先 | ⭐⭐⭐ 必须采纳 | ✅ |
+| **双向链接** | `[[文件名]]` 快速链接 | ⭐⭐ 代码/文档关联 | ❌ |
+| **Graph View** | 知识图谱可视化 | ⭐⭐ 代码依赖可视化 | ❌ |
+| **Canvas** | 无限画布 | ⭐ 架构设计场景 | ❌ |
+| **Daily Notes** | 每日笔记 | ⭐ 开发日志 | ❌ |
+
+**核心借鉴**：
+1. **本地优先**：代码和对话都存本地，用户掌控数据
+2. **简洁 API**：插件 API 简单直接，学习成本低
+3. **社区驱动**：插件生态由社区贡献（后续考虑）
 
 **状态**：📝 已提议
 
